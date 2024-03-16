@@ -1,3 +1,7 @@
+2024 Current State by crt0
+
+Writing/Reading variables, memory, registers (only as 32bit), call stack - works.
+
 INTRODUCTION
 ----------------------------------------------------------------------------
 
@@ -39,7 +43,7 @@ COPYRIGHT FOR PS2GDBSTUB
     software.  However, the author retains a non-exclusive royalty-free
     license to any modification to the distribution made by the licensee.
  4. Any Licensee wishing to make commercial use of the Softare must
-    contact the author to execute the appropriate license for such 
+    contact the author to execute the appropriate license for such
     commercial use.  Commercial use includes
      - Integration of all or part of the source code into a product for sale
        or commercial license by or on behalf Licensee to third parties, or
@@ -58,3 +62,4 @@ COPYRIGHT FOR PS2GDBSTUB
  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  THE POSSIBILITY OF SUCH DAMAGE.
+

@@ -5,7 +5,8 @@
 EE_LIB  = ../lib/libps2gdbStub.a
 EE_OBJS = ps2gdbStub.o gdb-low.o
 
-EE_CFLAGS +=	-g
+EE_CFLAGS +=	-g -w
+# -DDEBUG
 EE_LDFLAGS +=	-Wl,-Map,ps2gdbStub.map -L. -L../lib -L$(PS2SDK)/ee/lib
 
 all: $(EE_LIB)
@@ -13,5 +14,5 @@ all: $(EE_LIB)
 clean:
 	rm -f *.a *.o *.map $(EE_LIB)
 
-include ../Makefile.pref
-include ../Makefile.eeglobal
+include $(PS2SDK)/samples/Makefile.pref
+include $(PS2SDK)/samples/Makefile.eeglobal

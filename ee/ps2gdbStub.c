@@ -20,9 +20,6 @@
 // This project no longer contains a main function. Instead, link it into your own project and call gdb_stub_main from your own
 // main function.
 
-// Some exception handlers. This alarm thing isn't used atm. Probably won't be either.
-#define	exit_alarm_handler() __asm__ __volatile__(".set noreorder; sync.l; ei; .set reorder")
-
 // Unless you edit your gcc specs file, and change it from:-
 // *subtarget_cc1_spec:
 // ...to...
@@ -82,6 +79,7 @@ static int hex(unsigned char ch);
 static int hexToInt(char **ptr, int *intValue);
 static unsigned char *mem2hex(char *mem, char *buf, int count, int may_fault);
 void handle_exception( gdb_regs_ps2 *regs );
+static int gdbstub_net_accept();
 
 // These are the gdb buffers. For the tcpip comms, there are seperate buffers, which fill input_buffer and output_buffer when
 // needed.
@@ -117,7 +115,6 @@ gdb_regs_ps2 gdbstub_ps2_regs __attribute__((aligned(16)));
 struct gdb_regs gdbstub_regs;
 int thread_id_g;
 
-extern void gdbstub_shutdown_poll(int alarmid, unsigned short us, void *vp );
 
 static const unsigned char *regName[NUMREGS] =
 {
@@ -164,38 +161,9 @@ volatile gdbstub_comms_data *comms_p_g;
 // Gdb stub socket related global vars.
 struct sockaddr_in gdb_local_addr_g;
 struct sockaddr_in gdb_remote_addr_g;
-fd_set comms_fd_g;
+fd_set comms_fd_g, temp_comms_fd_g;
 int sh_g;
-int cs_g;
-int alarmid_g;
-
-// Don't want to wait around too much.
-struct timeval tv_0_g = { 0, 1 };
-struct timeval tv_1_g = { 0, 1 };
-
-int gdbstub_pending_recv()
-{
-	if( select( cs_g + 1, &comms_fd_g, (fd_set *)0, (fd_set *)0, &tv_1_g ) >= 1 ) {
-		if( FD_ISSET( cs_g, &comms_fd_g ) ) {
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
-
-int gdbstub_ready_to_send()
-{
-	if( select( cs_g + 1, (fd_set *)0, &comms_fd_g, (fd_set *)0, &tv_0_g ) >= 1 ) {
-		if( FD_ISSET( cs_g, &comms_fd_g ) ) {
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
+int cs_g = -1;
 
 void flush_cache_all()
 {
@@ -306,11 +274,6 @@ char getDebugChar()
 		return( gdbstub_recv_buffer_g[recvd_chars_processed++] );
 	}
 
-	// Await communications.
-	while( !gdbstub_pending_recv() ) {
-		putchar(0);
-	}
-
 	// Take it.
 	recvd_chars = recv( cs_g, gdbstub_recv_buffer_g, SIZE_GDBSTUB_TCP_BUFFER, 0 );
 	recvd_chars_processed = 0;
@@ -321,7 +284,12 @@ char getDebugChar()
 		return( gdbstub_recv_buffer_g[recvd_chars_processed++] );
 	}
 
-	gdbstub_error( "Couldn't get a char\n" );
+
+   gdbstub_printf( DEBUG_COMMS, " Waiting for remote GDB to connect\n\n\n");
+   while (gdbstub_net_accept() == -1)
+   {
+      gdbstub_error("GDB reconnect failed.\n");
+   }
 
 	return 0xff;
 }
@@ -337,9 +305,6 @@ int putDebugChar( char c )
 	ch[0] = c;
 	ch[1] = 0x0;
 
-	while( !gdbstub_ready_to_send() ) {
-		;
-	}
 	sent_size = send( cs_g, ch, 1, 0 );
 	if( sent_size != 1 ) {
 		gdbstub_error("Couldn't send a char %c\n", c );
@@ -359,10 +324,11 @@ static void getpacket(char *buffer)
 	int i;
 	int count;
 	unsigned char ch;
-
 	do {
 		// Wait for the start character, ignore all other characters.
-		while ((ch = (getDebugChar() & 0x7f)) != '$') ;
+		while ((ch = (getDebugChar() & 0x7f)) != '$'){
+		    __asm__ __volatile__("nop") ;
+		}
 
 		checksum = 0;
 		xmitcsum = -1;
@@ -371,8 +337,9 @@ static void getpacket(char *buffer)
 		// Read until a # or end of buffer is found.
 		while (count < BUFMAX) {
 			ch = getDebugChar() & 0x7f;
-			if (ch == '#')
+			if (ch == '#'){
 				break;
+			}
 			checksum = checksum + ch;
 			buffer[count] = ch;
 			count = count + 1;
@@ -410,41 +377,15 @@ static void getpacket(char *buffer)
 	while (checksum != xmitcsum);
 }
 
-
-// This is the char at a time version; very slow. Kept for reference only.
-/*
-static void putpacket(char *buffer)
-{
-	unsigned char checksum;
-	int count;
-	unsigned char ch;
-
-	gdbstub_printf( DEBUG_COMMS, "putpacket of:-\n\t\t%s, size is %d\n", buffer, strlen(buffer ) );
-	// $<packet info>#<checksum>.
-	do {
-		putDebugChar('$');
-		checksum = 0;
-		count = 0;
-
-		while ((ch = buffer[count]) != 0) {
-			if (!(putDebugChar(ch)))
-				return;
-			checksum += ch;
-			count ++;
-		}
-		putDebugChar('#');
-		putDebugChar(hexchars[checksum >> 4]);
-		putDebugChar(hexchars[checksum & 0xf]);
-	}
-	while ((getDebugChar() & 0x7f) != '+');		// Wait for acknowledgement.
-}
-*/
 // Fast version. Whole packet sent at a time.
 static void putpacket(char *buffer)
 {
 	unsigned char checksum;
 	unsigned char ch;
 	int count, sent_size;
+	int n;
+	int len;
+
 	gdbstub_send_buffer_g[0] = '$';
 	checksum = 0;
 	count = 0;
@@ -458,17 +399,23 @@ static void putpacket(char *buffer)
 	gdbstub_send_buffer_g[count+1]='#';
 	gdbstub_send_buffer_g[count+2]=hexchars[checksum >> 4];
 	gdbstub_send_buffer_g[count+3]=hexchars[checksum & 0xf];
-	while( !gdbstub_ready_to_send() ) {
-		;
-	}
-	sent_size = send( cs_g, gdbstub_send_buffer_g, count+4, 0 );
+
+   len = count+4;
+   sent_size = n = send(cs_g, gdbstub_send_buffer_g, len, 0);
+   // Send buffer of ps2ips (1024 Bytes) could be to small when sending all registers:
+   while (sent_size < len)
+   {
+      n = send(cs_g, &gdbstub_send_buffer_g[sent_size], len - sent_size, 0);
+      if (n <= 0)
+         break;
+      sent_size += n;
+   }
 	while ((getDebugChar() & 0x7f) != '+');		// Wait for ack.
 }
 
 // Indicate to caller of mem2hex or hex2mem that there
 // has been an error. WHAT'S THIS ABOUT THEN???
 static volatile int mem_err = 0;
-
 
 // Convert the memory pointed to by mem into hex, placing result in buf.
 // Return a pointer to the last char put in buf (null), in case of mem fault, return 0.
@@ -510,7 +457,6 @@ static unsigned char *mem2hex(char *mem, char *buf, int count, int may_fault)
 
 	return buf;
 }
-
 
 // Writes the binary of the hex array pointed to by into mem.
 // Returns a pointer to the byte AFTER the last written.
@@ -661,19 +607,6 @@ static void single_step(struct gdb_regs *regs)
 		*(unsigned *)(regs->cp0_epc + 4) = BP_OPC;
 		gdbstub_printf( DEBUG_SINGLESTEP, "hoisted %8x (epc + 4) with BP_OPC\n", regs->cp0_epc + 4);
 	}
-}
-
-
-// Not sure if I'll need alarms, maybe to allow shutting down the debugger from pksh, and also for picking up async breakpoint
-// requests??? (communicated via either ps2ip or the comms structure?).
-void gdbstub_shutdown_poll( int alarmid, unsigned short us, void *vp )
-{
-	if( comms_p_g && !comms_p_g->shutdown_should ) {
-		iWakeupThread( thread_id_g );
-	}
-	alarmid_g = iSetAlarm( 10000, gdbstub_shutdown_poll, NULL );
-
-	exit_alarm_handler();
 }
 
 
@@ -1056,7 +989,7 @@ void handle_exception( gdb_regs_ps2 *ps2_regs )
 
 	// put the packet.
 	*ptr++ = 0;
-	putpacket(output_buffer);
+	gdbstub_initialised_g == 2 ? putpacket(output_buffer):putDebugChar('-'),gdbstub_initialised_g = 2;
 
 	// Wait for input from remote GDB.
 	while (1) {
@@ -1089,12 +1022,12 @@ void handle_exception( gdb_regs_ps2 *ps2_regs )
 
 		// Return the value of the CPU registers.
 		case 'g':
-			ptr = mem2hex((char *)&regs->reg0, ptr, 32*4, 0);		// r0...r31
-			ptr = mem2hex((char *)&regs->cp0_status, ptr, 6*4, 0);	// status, lo, hi, bad, cause, pc (epc!).
-			ptr = mem2hex((char *)&regs->fpr0, ptr, 32*4, 0);		// f0...31
-			ptr = mem2hex((char *)&regs->cp1_fsr, ptr, 2*4, 0);		// cp1
-			ptr = mem2hex((char *)&regs->frame_ptr, ptr, 2*4, 0);	// fp, dummy. What's dummy for?
-			ptr = mem2hex((char *)&regs->cp0_index, ptr, 16*4, 0);	// index, random, entrylo0, entrylo0 ... prid
+			ptr = mem2hex((char *)&regs->reg0, ptr, 32*4, 0);               // r0...r31
+			ptr = mem2hex((char *)&regs->cp0_status, ptr, 6*4, 0);  // status, lo, hi, bad, cause, pc (epc!).
+			ptr = mem2hex((char *)&regs->fpr0, ptr, 32*4, 0);               // f0...31
+			ptr = mem2hex((char *)&regs->cp1_fsr, ptr, 2*4, 0);             // cp1
+			ptr = mem2hex((char *)&regs->frame_ptr, ptr, 2*4, 0);   // fp, dummy. What's dummy for?
+			ptr = mem2hex((char *)&regs->cp0_index, ptr, 16*4, 0);  // index, random, entrylo0, entrylo0 ... prid
 			break;
 
 		// Set the value of the CPU registers - return OK.
@@ -1102,13 +1035,17 @@ void handle_exception( gdb_regs_ps2 *ps2_regs )
 		{
 			// TODO :: Test this, what about the SP stuff?
 			ptr2 = &input_buffer[1];
-			printf("DODGY G COMMAND RECIEVED\n");
-			hex2mem(ptr2, (char *)regs, 90*4, 0);					// All regs.
-			// Not sure about this part, so I'm not doing it.
-			// See if the stack pointer has moved. If so, then copy the saved locals and ins to the new location.
-			// newsp = (unsigned long *)registers[SP];
-			// if (sp != newsp)
-			//	sp = memcpy(newsp, sp, 16 * 4);
+			hex2mem(ptr2, (char *)&regs->reg0, 32*4, 0);
+			ptr2 = &ptr2[32*8];
+			hex2mem(ptr2, (char *)&regs->cp0_status, 6*4, 0);
+			ptr2 = &ptr2[6*8];
+			hex2mem(ptr2, (char *)&regs->fpr0, 32*4, 0);
+			ptr2 = &ptr2[32*8];
+			hex2mem(ptr2, (char *)&regs->cp1_fsr, 2*4, 0);
+			ptr2 = &ptr2[2*8];
+			hex2mem(ptr2, (char *)&regs->frame_ptr, 2*4, 0);
+			ptr2 = &ptr2[2*8];
+			hex2mem(ptr2, (char *)&regs->cp0_index, 16*4, 0);
 			strcpy(output_buffer,"OK");
 		}
 		break;
@@ -1257,13 +1194,12 @@ static int hexToInt(char **ptr, int *intValue)
 }
 
 
-void breakpoint(void)
+void __attribute__ ((noinline)) breakpoint(void)
 {
 	if( !gdbstub_initialised_g ) {
 		gdbstub_error( "breakpoint() called, but not initialised stub yet!\n" );
 		return;
 	}
-
 	__asm__ __volatile__("			\n"
 "			.globl	breakinst	\n"
 "			.set	noreorder	\n"
@@ -1273,11 +1209,9 @@ void breakpoint(void)
 "			.set	reorder		\n");
 }
 
-
 // -1 == failure
 int gdbstub_net_open()
 {
-	int remote_len, tmp;
 	int rc_bind, rc_listen;
 
 	if( SifLoadModule(HOSTPATHIRX "ps2ips.irx", 0, NULL) < 0 ) {
@@ -1302,10 +1236,6 @@ int gdbstub_net_open()
 	gdb_local_addr_g.sin_addr.s_addr = htonl(INADDR_ANY);		// any local address (a.k.a 0.0.0.0).
 	gdb_local_addr_g.sin_port = htons(GDB_PORT);
 
-	// Non-blocking.
-	tmp = 1;
-	ioctlsocket( sh_g, FIONBIO, &tmp );
-
 	// bind.
 	rc_bind = bind( sh_g, (struct sockaddr *) &gdb_local_addr_g, sizeof( gdb_local_addr_g ) );
 	if ( rc_bind < 0 ) {
@@ -1322,8 +1252,17 @@ int gdbstub_net_open()
 		return -1;
 	}
 	gdbstub_printf( DEBUG_COMMSINIT, "Listen returned %i.\n", rc_listen );
+   return 0;
+}
+
+static int gdbstub_net_accept()
+{
+   int remote_len;
 
 	remote_len = sizeof( gdb_remote_addr_g );
+   // Disconnect last connection if there was any.
+   if (cs_g >= 0)
+      disconnect(cs_g);
 	cs_g = accept( sh_g, (struct sockaddr *)&gdb_remote_addr_g, &remote_len );
 
 	if ( cs_g < 0 ) {
@@ -1337,15 +1276,10 @@ int gdbstub_net_open()
 
 	gdbstub_printf( DEBUG_COMMSINIT, "accept is %d\n", cs_g );
 
-	// Turn off non-blocking. Not really sure about this.
-	tmp = 0;
-	ioctlsocket(cs_g, FIONBIO, &tmp);
-
 	gdbstub_printf( DEBUG_COMMSINIT, "netopen ok.\n" );
 
 	return 0;
 }
-
 
 void gdbstub_net_close()
 {
@@ -1366,22 +1300,11 @@ int gdbstub_init( int argc, char *argv[] )
 	gdbstub_num_exceptions_g = 0;
 	thread_id_g = GetThreadId();
 
-	if( gdbstub_net_open() == -1 ) {
+   if( gdbstub_net_open() == -1
+      || gdbstub_net_accept() == -1) {
 		gdbstub_error("failed to open net connection.\n");
 		return -1;
 	}
-
-// In case GDB is started before us, ack any packets (presumably "$?#xx") sitting there. I've seen comments since that this may not
-// be needed now, and this seems to be the case.
-/*	{
-		char c;
-
-		while((c = getDebugChar()) != '$');
-		while((c = getDebugChar()) != '#');
-		c = getDebugChar();						// First csum byte.
-		c = getDebugChar();						// Second csum byte.
-		putDebugChar('+');						// ack it.
-	} */
 
 	for( ht = hard_trap_info; ht->tt && ht->signo; ht++ ) {
 		if( ht->tt < 4 )
@@ -1389,12 +1312,9 @@ int gdbstub_init( int argc, char *argv[] )
 		else
 			SetVCommonHandler( ht->tt, trap_low );
 	}
-//	alarmid_g = SetAlarm( 10000, gdbstub_shutdown_poll, NULL );
 	flush_cache_all();
 	gdbstub_initialised_g = 1;
-	printf("Waiting for remote GDB to connect\n");
-	printf("\n");
-	printf("\n");
+	gdbstub_printf( DEBUG_COMMS, "Waiting for remote GDB to connect\n\n\n");
 
 	breakpoint();
 
@@ -1419,7 +1339,7 @@ int gdb_stub_main( int argc, char *argv[] )
 	init_scr();
 	scr_printf( "GDB Stub Loaded\n\n" );
 #endif
-	printf( "GDB Stub Loaded\n\n" );
+	gdbstub_printf( DEBUG_COMMSINIT, "GDB Stub Loaded\n\n" );
 
 	for( i = 0; i < argc; i++ )	{
 		gdbstub_printf( DEBUG_COMMSINIT, "arg %d is %s\n", i, argv[i] );
