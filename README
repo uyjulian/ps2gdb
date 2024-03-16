@@ -2,6 +2,12 @@
 
 Writing/Reading variables, memory, registers (only as 32bit), call stack - works.
 
+Usage: run app with ps2link
+mips64r5900el-ps2-elf-gdb -ex 'target remote:192.168.0.10:12'
+
+TODO: rewrite metwork stack
+
+
 INTRODUCTION
 ----------------------------------------------------------------------------
 
