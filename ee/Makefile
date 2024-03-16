@@ -22,6 +22,9 @@ all: $(EE_LIB)
 debug:
 	$(MAKE) DEBUG=1 all
 
+install: all
+	cp -f $(EE_LIB) $(PS2SDK)/ports/lib
+
 clean:
 	rm -rf $(EE_OBJS) $(EE_LIB) $(EE_LIB_DIR)
 
