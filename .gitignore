@@ -3,3 +3,8 @@
 *.erl
 *.irx
 *.o
+
+.*
+!.gitignore
+!.github
+!.clang-format

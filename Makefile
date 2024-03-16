@@ -4,11 +4,17 @@
 #  --------------------------------------------------------------------------
 
 
-all: 
+all:
 	$(MAKE) -C ee
-#	$(MAKE) -C iop
+	$(MAKE) -C sample
 
+debug:
+	$(MAKE) -C ee debug
+	$(MAKE) -C sample
+
+install:
+	$(MAKE) -C ee install
 
 clean:
 	$(MAKE) -C ee clean
-#	$(MAKE) -C iop clean
+	$(MAKE) -C sample clean
