@@ -3,3 +3,7 @@
 *.erl
 *.irx
 *.o
+
+.*
+!.gitignore
+!.github

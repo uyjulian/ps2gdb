@@ -120,12 +120,12 @@ static const unsigned char *regName[NUMREGS] =
 {
 	// GPRs (0-31)
     "zero", "at",   "v0",   "v1",   "a0",   "a1",   "a2",   "a3",
-    "t0",   "t1",   "t2",   "t3",   "t4",   "t5",   "t6",   "t7", 
-    "s0",   "s1",   "s2",   "s3",   "s4",   "s5",   "s6",   "s7",   
+    "t0",   "t1",   "t2",   "t3",   "t4",   "t5",   "t6",   "t7",
+    "s0",   "s1",   "s2",   "s3",   "s4",   "s5",   "s6",   "s7",
 	"t8",   "t9",   "k0",   "k1",   "gp",   "sp",   "fp",   "ra",
 
 	// lo, hi, status, badvaddr, cause, epc. (32-37)
-	"lo",   "hi",	// These are the last two 128 bit registers.   
+	"lo",   "hi",	// These are the last two 128 bit registers.
 	"Stat", "BVAd", "Caus", "EPC",
 
 	// FPRs (38-69)
@@ -141,17 +141,17 @@ static const unsigned char *regName[NUMREGS] =
 
 	// There's redundancy in these cp0 registers, reg12==status, 13==cause, 14==epc, 8==badvaddr. don't know why the stub does this?
 	"cp0index", "cp0random", "entrylo0", "entrylo1", "context",  "pagemask", "wired",    "cp0reg7",
-	"cp0reg8",  "cp0reg9",   "entryhi",  "cp0reg11", "cp0reg12", "cp0reg13", "cp0reg14", "cp0prid", 
+	"cp0reg8",  "cp0reg9",   "entryhi",  "cp0reg11", "cp0reg12", "cp0reg13", "cp0reg14", "cp0prid",
 
 	// Ps2 Specific saved registers. ACC, sa, hi1, lo1, DEPC (cp0reg24), PrfC (cp0reg25). Not handled on the remote GDB side yet.
 	"acc",  "sa",   "hi1",  "lo1", "DEPC", "PrfC",
 };
 
-static char *exception_names_g[13] = 
+static char *exception_names_g[13] =
 {
     "Interrupt", "TLB modification", "TLB load/inst fetch", "TLB store",
-    "Address load/inst fetch", "Address store", "Bus error (instr)", 
-    "Bus error (data)", "Syscall", "Breakpoint", "Reserved instruction", 
+    "Address load/inst fetch", "Address store", "Bus error (instr)",
+    "Bus error (data)", "Syscall", "Breakpoint", "Reserved instruction",
     "Coprocessor unusable", "Arithmetic overflow"
 };
 
@@ -333,7 +333,7 @@ static void getpacket(char *buffer)
 		checksum = 0;
 		xmitcsum = -1;
 		count = 0;
-	
+
 		// Read until a # or end of buffer is found.
 		while (count < BUFMAX) {
 			ch = getDebugChar() & 0x7f;
@@ -834,13 +834,13 @@ void gdbstub_show_ps2_regs( gdb_regs_ps2 *regs, int except_num, int to_screen, i
 
 	// Print out the gprs.
     for(i = 0; i < 16; i++) {
-        printf_p("%4s:%016lx%016lx %4s:%016lx%016lx\n", 
+        printf_p("%4s:%016lx%016lx %4s:%016lx%016lx\n",
                    regName[i],				((long*)&regs->reg0)[(i*2)+1],				((long*)&regs->reg0)[i*2],
                    regName[i+16],			((long*)&regs->reg0)[(i+16)*2+1],			((long*)&regs->reg0)[(i+16)*2] );
 	}
 
 	// Print out hi and lo. on ps2 these are 128 bit.
-    printf_p("\n%4s:%016lx%016lx %4s:%016lx%016lx\n", 
+    printf_p("\n%4s:%016lx%016lx %4s:%016lx%016lx\n",
                 regName[32],				((long*)&regs->lo)[1],					((long*)&regs->lo)[0],
                 regName[33],				((long*)&regs->hi)[1],					((long*)&regs->hi)[0] );
 
@@ -864,7 +864,7 @@ void gdbstub_show_ps2_regs( gdb_regs_ps2 *regs, int except_num, int to_screen, i
 
 
 // If asynchronously interrupted by gdb, then we need to set a breakpoint
-// at the interrupted instruction so that we wind up stopped with a 
+// at the interrupted instruction so that we wind up stopped with a
 // reasonable stack frame.
 // It may be time to intergrate this code with ps2sdk.
 static struct gdb_bp_save async_bp;
@@ -932,7 +932,7 @@ void handle_exception( gdb_regs_ps2 *ps2_regs )
 		gdbstub_printf( DEBUG_SINGLESTEP, "Restoring step_bp[0] %8x (was %8x) to %8x\n", step_bp[0].addr, *(unsigned *)step_bp[0].addr, step_bp[0].val );
 		*(unsigned *)step_bp[0].addr = step_bp[0].val;
 		step_bp[0].addr = 0;
-		    
+
 		if (step_bp[1].addr) {
 			gdbstub_printf( DEBUG_SINGLESTEP, "Restoring step_bp[1] %8x (was %8x) to %8x\n", step_bp[1].addr, *(unsigned *)step_bp[1].addr, step_bp[1].val );
 			*(unsigned *)step_bp[1].addr = step_bp[1].val;
@@ -1065,7 +1065,7 @@ void handle_exception( gdb_regs_ps2 *ps2_regs )
 			break;
 
 		// MAA..AA,LLLL: Write LLLL bytes at address AA.AA return OK.
-		case 'M': 
+		case 'M':
 			ptr2 = &input_buffer[1];
 
 			if (hexToInt(&ptr2, &addr)

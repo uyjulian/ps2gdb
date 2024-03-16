@@ -4,11 +4,10 @@
 #  --------------------------------------------------------------------------
 
 
-all: 
+all:
 	$(MAKE) -C ee
-#	$(MAKE) -C iop
-
+	$(MAKE) -C sample
 
 clean:
 	$(MAKE) -C ee clean
-#	$(MAKE) -C iop clean
+	$(MAKE) -C sample clean
