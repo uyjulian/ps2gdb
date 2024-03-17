@@ -27,6 +27,7 @@ jobs:
           name: sample
           path: |
             sample/*.elf
+            sample/*.irx
 
       - name: Create release
         if: github.ref == 'refs/heads/master'
@@ -37,3 +38,4 @@ jobs:
           title: "Latest development build"
           files: |
             sample/*.elf
+            sample/*.irx
